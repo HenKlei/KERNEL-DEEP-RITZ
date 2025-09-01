@@ -38,4 +38,4 @@ To reproduce the results, we provide the original script creating the results pr
 the paper in the directory [`kernelDR/experiments/`](kernelDR/experiments/).
 
 ## Questions
-If you have any questions, feel free to contact us via email at <hendrik.kleikamp@uni-muenster.de>.
+If you have any questions, feel free to contact us via email at <hendrik.kleikamp@uni-graz.at>.
