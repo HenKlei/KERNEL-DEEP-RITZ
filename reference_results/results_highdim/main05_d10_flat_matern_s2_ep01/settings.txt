@@ -1,0 +1,27 @@
+date: 2026-05-31 14:44:38
+d_x: 10
+model_type: flat
+kernel: matern
+k_smoothness: 2
+ep: 0.1
+frequency: 3.141592653589793
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+optimizer_type: adam
+n_epochs: 10000
+lr: 0.05
+matrix_lr_mult: 1.0
+gamma: 0.5
+n_candidates_interior: 5000
+n_candidates_boundary: 5000
+list_n_centers: (10, 20, 30)
+n_error: 10000
+fixed_integration_points: False
+num_logs: 50
+early_stopping_patience: 500
+seed: 0
+matrix_init: 
+freeze_matrix: False
+results_dir: results_highdim/main05_d10_flat_matern_s2_ep01/
+device: cuda

@@ -1,0 +1,10 @@
+date: 2026-05-23 13:43:53
+kernel: matern
+ep: 1.0
+penalty_parameter: 100.0
+n_error: 10201
+list_kmat: (0, 1, 2)
+list_n_per_dim: (1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
+results_dir: results_interpolation_smooth_solution/
+device: cuda
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x7ea9d48c8110>

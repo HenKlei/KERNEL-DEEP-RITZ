@@ -6,10 +6,10 @@ from kernelDR.problem_definitions.domains.circular_sector import my_arctan_torch
 
 
 class LaplaceOnPacmanDomain(DeepRitzExample):
-    """
+    r"""
     -\Delta u(x) = 0, x\in \Omega,
     u(x) = x1 * x2 + 1, x=[x1, x2]\in \partial \Omega
-    \Omega = CircularSectorDomain with opening angle alpha  # noqa
+    \Omega = CircularSectorDomain with opening angle alpha
     Solution given by u(x) = x1 * x2 + 1
     """
     def __init__(self, angle=3.*torch.pi/2., radius=1., penalty_parameter=1., device=torch.device('cpu')):
@@ -37,10 +37,10 @@ class LaplaceOnPacmanDomain(DeepRitzExample):
 
 
 class LaplaceOnPacmanDomainSingularSolution(DeepRitzExample):
-    """
+    r"""
     -\Delta u(x) = 0, x\in \Omega,
     u(x) = np.linalg.norm(x, axis=1, keepdims=True) ** (1 / alpha) * np.sin(my_arctan(x[:, [0]], x[:, [1]]) / alpha) + 1, x=[x1, x2]\in \partial \Omega
-    \Omega = CircularSectorDomain with opening angle alpha  # noqa
+    \Omega = CircularSectorDomain with opening angle alpha
     Solution given by u(x) = np.linalg.norm(x, axis=1, keepdims=True) ** (1 / alpha) * np.sin(my_arctan(x[:, [0]], x[:, [1]]) / alpha) + 1
     """
     def __init__(self, angle=3.*torch.pi/2., radius=1., penalty_parameter=1., device=torch.device('cpu')):

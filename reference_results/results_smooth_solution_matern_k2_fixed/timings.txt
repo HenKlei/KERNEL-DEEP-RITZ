@@ -1,0 +1,2 @@
+n_per_dim	n_centers	num_params	epochs	time_train_s	peak_mem_mb
+20	484	484	10000	1621.52	657.34

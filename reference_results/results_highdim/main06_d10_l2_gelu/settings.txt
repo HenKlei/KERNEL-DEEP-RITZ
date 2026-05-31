@@ -1,0 +1,19 @@
+date: 2026-05-31 14:39:54
+d_x: 10
+frequency: 3.141592653589793
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_epochs: 10000
+lr: 0.05
+gamma: 0.5
+num_layers: 2
+activation: gelu
+list_num_neurons_per_layer: (8, 16, 32)
+n_error: 10000
+fixed_integration_points: False
+num_logs: 100
+early_stopping_patience: 500
+seed: 0
+results_dir: results_highdim/main06_d10_l2_gelu/
+device: cuda

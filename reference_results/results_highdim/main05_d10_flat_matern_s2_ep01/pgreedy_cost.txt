@@ -1,0 +1,2 @@
+n_candidates	n_selected	time_setup_s	peak_mem_mb
+10000	30	0.1600	37.97

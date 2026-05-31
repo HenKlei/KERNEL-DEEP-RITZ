@@ -38,7 +38,7 @@ class CircularSectorDomain(BaseDomain):
 
         points = torch.cartesian_prod(x1, x2)
         points = points[torch.linalg.norm(points, axis=-1) < self.radius, :]        # remove points outside the circle
-        points = points[my_arctan(points[:, 0], points[:, 1]) < self.angle, :]      # remove points outside the sector
+        points = points[my_arctan_torch(points[:, 0], points[:, 1]) < self.angle, :]      # remove points outside the sector
         points = points[torch.linalg.norm(points, axis=-1) > 1e-10, :]        # remove points too close to origin
 
         points = points.to(self.device)

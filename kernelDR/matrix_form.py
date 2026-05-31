@@ -1,4 +1,5 @@
 import numpy as np
+import scipy as sp
 import torch
 import torch.nn as nn
 
@@ -6,9 +7,14 @@ from kernelDR.utils import gradient
 
 
 def assemble_and_solve_system(problem, model_class, n_i, n_b, model_params={}, return_linear_system=False,
-                              regularization=0., save_mat_path=None):
-    x_i = problem.domain.random_interior_points(n_i)
-    x_b = problem.domain.random_boundary_points(n_b)
+                              regularization=0., save_mat_path=None, solver='pos',
+                              use_uniform_quadrature=False):
+    if use_uniform_quadrature:
+        x_i = problem.domain.uniform_interior_points(n_i)
+        x_b = problem.domain.uniform_boundary_points(n_b)
+    else:
+        x_i = problem.domain.random_interior_points(n_i)
+        x_b = problem.domain.random_boundary_points(n_b)
 
     model_ansatz = model_class(problem.domain.dim, problem.output_dim, **model_params)
     model_test = model_class(problem.domain.dim, problem.output_dim, **model_params)
@@ -46,7 +52,8 @@ def assemble_and_solve_system(problem, model_class, n_i, n_b, model_params={}, r
     if save_mat_path is not None:
         np.save(save_mat_path + "regularized_A", A)
 
-    coeffs = np.linalg.solve(A, b)
+    coeffs = sp.linalg.solve(A, b, assume_a=solver)
+
     model = model_class(problem.domain.dim, problem.output_dim, **model_params)
     model.coeffs = nn.Parameter(torch.tensor(coeffs))
 

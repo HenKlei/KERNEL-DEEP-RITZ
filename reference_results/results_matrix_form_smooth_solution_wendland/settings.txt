@@ -1,0 +1,14 @@
+date: 2026-05-24 13:35:04
+kernel: wendland
+ep: 1.0
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_error: 10201
+regularization: 1e-10
+solver: pos
+list_kmat: (0, 1, 2)
+list_n_per_dim: (1, 2, 4, 8, 12, 16, 20)
+results_dir: results_matrix_form_smooth_solution_wendland/
+device: cuda
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x716b15724dd0>

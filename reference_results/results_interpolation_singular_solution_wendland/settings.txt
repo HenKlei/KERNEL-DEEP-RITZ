@@ -1,0 +1,12 @@
+date: 2026-05-24 06:40:52
+kernel: wendland
+ep: 1.0
+penalty_parameter: 100.0
+n_error: 10201
+angle: 4.71238898038469
+radius: 1.5
+list_kmat: (0, 1, 2)
+list_n_per_dim: (1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
+results_dir: results_interpolation_singular_solution_wendland/
+device: cuda
+problem: <kernelDR.problem_definitions.laplace_pacman.LaplaceOnPacmanDomainSingularSolution object at 0x7e13e8ff3200>

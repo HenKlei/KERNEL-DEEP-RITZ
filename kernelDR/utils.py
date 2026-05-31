@@ -7,6 +7,19 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def reset_peak_memory():
+    """Reset CUDA peak-memory tracking; no-op on CPU."""
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+
+def peak_memory_mb():
+    """Return CUDA peak allocated memory since last reset, in MB. Returns 0 on CPU."""
+    if torch.cuda.is_available():
+        return torch.cuda.max_memory_allocated() / (1024.0 ** 2)
+    return 0.0
+
+
 def my_arctan(x1, x2):
     # Returns angle in the interval [0, 2pi]
     phi = np.arctan2(x2, x1)

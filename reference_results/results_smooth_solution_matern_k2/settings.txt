@@ -1,0 +1,20 @@
+date: 2026-05-23 09:04:57
+model_type: flat
+kernel: matern
+k_smoothness: 2
+ep: 1.0
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_error: 10201
+optimizer_type: adam
+n_epochs: 10000
+lr: 0.05
+gamma: 0.5
+num_logs: 400
+early_stopping_patience: 0
+fixed_integration_points: False
+list_n_per_dim: (1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
+results_dir: results_smooth_solution_matern_k2/
+device: cuda
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x7bd3a77d13a0>

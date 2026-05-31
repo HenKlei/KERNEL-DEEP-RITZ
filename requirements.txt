@@ -1,8 +1,5 @@
-numpy==1.24.1
-scipy==1.11.4
-matplotlib==3.7.2
-git+https://gitlab.mathematik.uni-stuttgart.de/pub/ians-anm/2l-vkoga@v0.1.2
---find-links https://download.pytorch.org/whl/torch_stable.html
-torch==2.1.1+cpu
-tikzplotlib==0.10.1
-webcolors==1.13
+numpy==2.4.4
+scipy==1.17.1
+matplotlib==3.10.8
+git+https://gitlab.mathematik.uni-stuttgart.de/pub/ians-anm/2l-vkoga@v0.1.3
+cyclopts==4.10.1

@@ -1,3 +1,9 @@
+*results*
+# Frozen reference data shipped with the paper for plot reproduction.
+!reference_results/
+!reference_results/**
+
+
 # Added Tiz
 tb_logs/
 *.npy
@@ -159,4 +165,4 @@ fabric.properties
 
 *.mdl
 
-*results*
+figures/

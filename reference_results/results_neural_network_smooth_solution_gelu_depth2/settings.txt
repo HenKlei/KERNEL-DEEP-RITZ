@@ -1,0 +1,17 @@
+date: 2026-05-27 14:52:39
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_error: 10201
+n_epochs: 100000
+lr: 0.05
+gamma: 0.5
+num_logs: 400
+early_stopping_patience: 0
+num_layers: 2
+activation: gelu
+scheduler_type: multistep
+list_num_neurons_per_layer: (1, 2, 3, 6, 8, 12, 14)
+results_dir: results_neural_network_smooth_solution_gelu_depth2/
+device: cuda
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x7dc3afdbf2c0>

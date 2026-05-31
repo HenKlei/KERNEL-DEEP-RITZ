@@ -1,65 +1,97 @@
+from datetime import datetime
+from typing import Annotated
+
+import cyclopts
 import numpy as np
 import os
-from datetime import datetime
+import scipy as sp
+import time
 import torch
 import torch.nn as nn
 
 from kernelDR.models.model_kernels import FlatKernelModel
-from kernelDR.problem_definitions.poisson_higher_regularity import PoissonHigherRegularityRefSol
-from kernelDR.utils import compute_relative_L2_error, compute_relative_H1_error
+from kernelDR.problem_definitions.poisson_higher_regularity import PoissonHigherRegularity
+from kernelDR.utils import compute_relative_L2_error, compute_relative_H1_error, peak_memory_mb, reset_peak_memory
+from kernelDR.experiments.plot_utils import save_settings
 
 
-torch.set_default_dtype(torch.float64)
+app = cyclopts.App()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-problem = PoissonHigherRegularityRefSol(penalty_parameter=100., device=device)
 
-n_error = 10201
+@app.default
+def main(
+    kernel: Annotated[str, cyclopts.Parameter(help="Kernel type.")] = "matern",
+    ep: Annotated[float, cyclopts.Parameter(help="Kernel shape parameter.")] = 1.0,
+    penalty_parameter: Annotated[float, cyclopts.Parameter(help="Penalty parameter for boundary conditions.")] = 100.0,
+    n_error: Annotated[int, cyclopts.Parameter(help="Number of error evaluation points.")] = 10201,
+    list_kmat: Annotated[tuple[int, ...], cyclopts.Parameter(help="Kernel smoothness values.")] = (0, 1, 2),
+    list_n_per_dim: Annotated[tuple[int, ...], cyclopts.Parameter(help="Centers per dimension.")] = (1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
+    regularization: Annotated[float, cyclopts.Parameter(help="Tikhonov regularization added to the kernel diagonal.")] = 0.0,
+    results_dir: Annotated[str, cyclopts.Parameter(help="Results output directory.")] = "results_interpolation_smooth_solution/",
+):
+    torch.set_default_dtype(torch.float64)
 
-filepath_prefix = "results_interpolation_smooth_solution/"
-os.makedirs(filepath_prefix, exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.set_default_device(device)
+    problem = PoissonHigherRegularity(penalty_parameter=penalty_parameter, device=device)
 
-kernel = "matern"
-ep = 1
-list_kmat = [0, 1, 2]
+    if not results_dir.endswith("/"):
+        results_dir += "/"
+    os.makedirs(results_dir, exist_ok=True)
+    save_settings(results_dir, locals())
 
-list_n_per_dim = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+    array_errors_L2 = np.zeros((len(list_kmat), len(list_n_per_dim)))
+    array_errors_H1 = np.zeros((len(list_kmat), len(list_n_per_dim)))
+    array_times = np.zeros((len(list_kmat), len(list_n_per_dim)))
+    array_peak_mem = np.zeros((len(list_kmat), len(list_n_per_dim)))
+    array_n_centers = np.zeros((len(list_kmat), len(list_n_per_dim)), dtype=int)
 
-array_errors_L2 = np.zeros((len(list_kmat), len(list_n_per_dim)))
-array_errors_H1 = np.zeros((len(list_kmat), len(list_n_per_dim)))
+    for idx_kmat, kmat in enumerate(list_kmat):
+        for idx_n, n_per_dim in enumerate(list_n_per_dim):
+            print(datetime.now().strftime("%H:%M:%S"), kmat, n_per_dim)
+            # Use centers both in the interior and the boundary --> this seems to improve accuracy
+            centers_inner = problem.domain.uniform_interior_points(n_per_dim**2)
+            # (n+2) due to having the boundary corner points always
+            centers_boundary = problem.domain.uniform_boundary_points(4 * (n_per_dim + 2))
 
-for idx_kmat, kmat in enumerate(list_kmat):
-    for idx_n, n_per_dim in enumerate(list_n_per_dim):
-        print(datetime.now().strftime("%H:%M:%S"), kmat, n_per_dim)
-        # Use centers both in the interior and the boundary --> this seems to improve accuracy
-        centers_inner = problem.domain.uniform_interior_points(n_per_dim**2)
-        n_inner_centers = len(centers_inner)
-        # (n+2) due to having the boundary corner points always
-        centers_boundary = problem.domain.uniform_boundary_points(4 * (n_per_dim + 2))
-        n_boundary_centers = len(centers_boundary)
+            centers = torch.vstack([centers_inner, centers_boundary]).detach()
+            centers.requires_grad_()
 
-        centers = torch.vstack([centers_inner, centers_boundary]).detach()
-        centers.requires_grad_()
+            model = FlatKernelModel(problem.domain.dim, problem.output_dim,
+                                    str_kernel=kernel, k_smoothness=kmat, ctrs=centers, ep=ep, flag_lagrange=False)
 
-        model = FlatKernelModel(problem.domain.dim, problem.output_dim,
-                                str_kernel=kernel, k_smoothness=kmat, ctrs=centers, ep=ep, flag_lagrange=False)
+            # Compute interpolant (optional Tikhonov regularization for ill-conditioned kernel Gram matrices)
+            reset_peak_memory()
+            t_start = time.time()
+            K_mat = model.kernel.eval(centers, centers).detach().cpu().numpy()
+            if regularization > 0.0:
+                K_mat = K_mat + regularization * np.eye(K_mat.shape[0])
+            coeffs = sp.linalg.solve(K_mat,
+                                     problem.reference_solution(centers).detach().cpu().numpy(), assume_a='pos')
+            elapsed_time = time.time() - t_start
+            run_peak_mem_mb = peak_memory_mb()
 
-        # Compute interpolant
-        coeffs = np.linalg.solve(model.kernel.eval(centers, centers).detach().numpy(),
-                                 problem.reference_solution(centers).detach().numpy())
+            model.coeffs = nn.Parameter(torch.from_numpy(coeffs).to(model.ctrs.device))
 
-        model.coeffs = nn.Parameter(torch.from_numpy(coeffs))
+            error_L2 = compute_relative_L2_error(problem, model, n_error)
+            array_errors_L2[idx_kmat, idx_n] = error_L2
 
-        error_L2 = compute_relative_L2_error(problem, model, n_error)
-        array_errors_L2[idx_kmat, idx_n] = error_L2
+            error_H1 = compute_relative_H1_error(problem, model, n_error)
+            array_errors_H1[idx_kmat, idx_n] = error_H1
+            array_times[idx_kmat, idx_n] = elapsed_time
+            array_peak_mem[idx_kmat, idx_n] = run_peak_mem_mb
+            array_n_centers[idx_kmat, idx_n] = centers.shape[0]
 
-        error_H1 = compute_relative_H1_error(problem, model, n_error)
-        array_errors_H1[idx_kmat, idx_n] = error_H1
+    h_values = 1. / (np.array(list_n_per_dim) + 1)
 
-h_values = 1. / (np.array(list_n_per_dim) + 1)
+    for k_idx, k in enumerate(list_kmat):
+        with open(results_dir + "errors_k_" + str(k) + ".txt", "w") as f:
+            f.write("n\th ~ 1 / sqrt(n)\tn_centers\tL2-error\tH1-error\ttime_solve_s\tpeak_mem_mb\n")
+            for n, h, n_c, l2_err, h1_err, t, mem in zip(list_n_per_dim, h_values, array_n_centers[k_idx],
+                                                          array_errors_L2[k_idx], array_errors_H1[k_idx],
+                                                          array_times[k_idx], array_peak_mem[k_idx]):
+                f.write(f"{n}\t{h}\t{int(n_c)}\t{l2_err}\t{h1_err}\t{t:.4f}\t{mem:.2f}\n")
 
-for k in list_kmat:
-    with open(filepath_prefix + "errors_k_" + str(k) + ".txt", "w") as f:
-        f.write("n\th ~ 1 / sqrt(n)\tL2-error\tH1-error\n")
-        for n, h, l2_err, h1_err in zip(list_n_per_dim, h_values, array_errors_L2[k], array_errors_H1[k]):
-            f.write(f"{n}\t{h}\t{l2_err}\t{h1_err}\n")
+
+if __name__ == "__main__":
+    app()

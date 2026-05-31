@@ -1,0 +1,18 @@
+date: 2026-05-28 17:23:18
+kernel: matern
+ep: 1.0
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_error: 10201
+regularization: 1e-10
+solver: pos
+linear_solver: cg
+use_uniform_quadrature: True
+cg_maxiter: 10000
+cg_rtol: 1e-12
+list_kmat: (2,)
+list_n_per_dim: (20,)
+results_dir: results_matrix_form_smooth_solution_cg_uniform/
+device: cuda
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x7f67169756a0>
