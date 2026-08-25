@@ -3,14 +3,27 @@ import os
 import time
 import torch
 
-from kernelDR.utils import compute_relative_L2_error, compute_relative_H1_error
+from kernelDR.utils import compute_relative_L2_error, compute_relative_H1_error, drop_points_near_centers
 from datetime import datetime
 
 
 def train_model(problem, model, n_i, n_b, epochs, optimizer, centers=None, scheduler=None,
                 fixed_integration_points=False, flag_best_model=True, list_epochs_log=None, num_logs=40,
                 n_error=10201, early_stopping_patience=0, matrix_snapshot_interval=10,
-                matrix_trajectory_path=None, training_metrics_path=None):
+                matrix_trajectory_path=None, training_metrics_path=None, best_model_path=None,
+                remove_center_points=True, fixed_x_i=None, fixed_x_b=None):
+    """Minimise the energy functional of ``problem`` over the parameters of ``model``.
+
+    With ``fixed_integration_points`` the same quadrature points are used in every
+    epoch, otherwise a new set is drawn per epoch. By default the fixed set is the
+    uniform tensor-product grid; passing ``fixed_x_i`` / ``fixed_x_b`` uses a given
+    point set instead, which allows a fixed *random* rule and lets an optimizer run
+    be compared against a linear system assembled from exactly the same points.
+
+    ``remove_center_points`` drops quadrature points that coincide with a center.
+    Set it to False to minimise exactly the functional that the matrix-form
+    assembly discretises, which does not remove any points.
+    """
     if list_epochs_log is None:
         list_epochs_log = list(np.unique(np.geomspace(1, epochs, num=num_logs, dtype=int, endpoint=True)))
 
@@ -18,7 +31,13 @@ def train_model(problem, model, n_i, n_b, epochs, optimizer, centers=None, sched
     best_epoch = 0
     early_stopping_counter = 0
 
-    best_model_filename = "best_deep_ritz.mdl"
+    # Unique per process, so that several runs launched concurrently in the same
+    # working directory (e.g. a seed sweep) do not overwrite or delete each
+    # other's checkpoint.
+    keep_checkpoint = best_model_path is not None
+    if best_model_path is None:
+        best_model_path = f"best_deep_ritz_{os.getpid()}.mdl"
+    best_model_filename = best_model_path
 
     if centers is None:
         # check whether model has attribute ctrs
@@ -27,29 +46,21 @@ def train_model(problem, model, n_i, n_b, epochs, optimizer, centers=None, sched
         else:
             centers = None
 
-    if os.path.exists(best_model_filename):
+    if flag_best_model and os.path.exists(best_model_filename):
         os.remove(best_model_filename)
 
     def remove_centers(x):
-        if centers is None:
+        if centers is None or not remove_center_points:
             return x
-        else:
-            spatial_dim = x.shape[1]
-            tol = 1e-3
-            with torch.no_grad():
-                for c in centers:
-                    sel = torch.linalg.norm(x - c[:spatial_dim], dim=-1) < tol
-                    mask = ~sel
-                    x = x[mask]
-            x.requires_grad_()
-            return x
+        return drop_points_near_centers(x, centers)
 
-    # generate the data set
+    # Generate the fixed quadrature once, outside the optimization loop: either the
+    # given point set, or by default the uniform tensor-product grid.
     if fixed_integration_points:
-        x_i = problem.domain.random_interior_points(n_i)
-        x_i = remove_centers(x_i)
-        x_b = problem.domain.random_boundary_points(n_b)
-        x_b = remove_centers(x_b)
+        x_i_fixed = fixed_x_i if fixed_x_i is not None else problem.domain.uniform_interior_points(n_i)
+        x_b_fixed = fixed_x_b if fixed_x_b is not None else problem.domain.uniform_boundary_points(n_b)
+        x_i_fixed = remove_centers(x_i_fixed).detach().clone().requires_grad_()
+        x_b_fixed = remove_centers(x_b_fixed).detach().clone().requires_grad_()
 
     list_loss = []
     list_L2 = []
@@ -62,16 +73,11 @@ def train_model(problem, model, n_i, n_b, epochs, optimizer, centers=None, sched
     def closure():
         optimizer.zero_grad()
 
-        if not fixed_integration_points:
-            x_i = problem.domain.random_interior_points(n_i)
-            x_i = remove_centers(x_i)
-            x_b = problem.domain.random_boundary_points(n_b)
-            x_b = remove_centers(x_b)
+        if fixed_integration_points:
+            x_i, x_b = x_i_fixed, x_b_fixed
         else:
-            x_i = problem.domain.uniform_interior_points(n_i)
-            x_i = remove_centers(x_i)
-            x_b = problem.domain.uniform_boundary_points(n_b)
-            x_b = remove_centers(x_b)
+            x_i = remove_centers(problem.domain.random_interior_points(n_i))
+            x_b = remove_centers(problem.domain.random_boundary_points(n_b))
 
         loss = problem.energy(model, x_i, x_b)
         loss.backward()
@@ -181,6 +187,8 @@ def train_model(problem, model, n_i, n_b, epochs, optimizer, centers=None, sched
     if flag_best_model:
         print(f"Best epoch: {best_epoch}\tBest loss: {best_loss}")
         model.load_state_dict(torch.load(best_model_filename))
+        if not keep_checkpoint:
+            os.remove(best_model_filename)
     else:
         best_loss = loss.item()
 

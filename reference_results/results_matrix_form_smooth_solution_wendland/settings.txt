@@ -1,14 +1,24 @@
-date: 2026-05-24 13:35:04
+date: 2026-08-22 11:16:31
 kernel: wendland
 ep: 1.0
 penalty_parameter: 100.0
 n_i: 10000
 n_b: 1000
-n_error: 10201
-regularization: 1e-10
+n_error: 640000
+regularization: 0.0
 solver: pos
+linear_solver: direct
+use_uniform_quadrature: False
+flag_lagrange: True
+assembly: vectorized
+chunk_size: 0
+cg_maxiter: 10000
+cg_rtol: 1e-12
+cg_error_interval: 10
+seed: 0
+save_models: False
 list_kmat: (0, 1, 2)
 list_n_per_dim: (1, 2, 4, 8, 12, 16, 20)
-results_dir: results_matrix_form_smooth_solution_wendland/
-device: cuda
-problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x716b15724dd0>
+results_dir: /tmp/claude-1000/-home-hendrik-kleikamp-Projects-kernel-deep-ritz-code-deep-ritz-and-kernel-methods/544c89ad-c169-449d-b96c-b0ad78adca56/scratchpad/mflagrange/matrix_form_smooth_solution_wendland_lagrange/
+device: cpu
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x75ce1097a180>

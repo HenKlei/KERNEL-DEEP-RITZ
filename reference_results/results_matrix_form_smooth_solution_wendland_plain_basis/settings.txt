@@ -1,0 +1,23 @@
+date: 2026-08-09 15:33:39
+kernel: wendland
+ep: 1.0
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_error: 640000
+regularization: 1e-10
+solver: pos
+linear_solver: direct
+use_uniform_quadrature: False
+assembly: vectorized
+chunk_size: 0
+cg_maxiter: 10000
+cg_rtol: 1e-12
+cg_error_interval: 10
+seed: 0
+save_models: True
+list_kmat: (0, 1, 2)
+list_n_per_dim: (1, 2, 4, 8, 12, 16, 20)
+results_dir: results_matrix_form_smooth_solution_wendland/
+device: cpu
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x73d9ed49c7a0>

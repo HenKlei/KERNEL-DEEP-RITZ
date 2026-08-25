@@ -1,0 +1,23 @@
+date: 2026-08-07 22:00:59
+kernel: matern
+ep: 1.0
+penalty_parameter: 100.0
+n_i: 10000
+n_b: 1000
+n_error: 10201
+regularization: 1e-10
+solver: pos
+linear_solver: cg
+use_uniform_quadrature: True
+assembly: vectorized
+chunk_size: 0
+cg_maxiter: 10000
+cg_rtol: 1e-12
+cg_error_interval: 10
+seed: 0
+save_models: True
+list_kmat: (2,)
+list_n_per_dim: (20,)
+results_dir: /tmp/claude-1000/-home-hendrik-kleikamp-Projects-kernel-deep-ritz-code-deep-ritz-and-kernel-methods/544c89ad-c169-449d-b96c-b0ad78adca56/scratchpad/local/cg_n20/
+device: cpu
+problem: <kernelDR.problem_definitions.poisson_higher_regularity.PoissonHigherRegularity object at 0x7bbcbee6bf20>

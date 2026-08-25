@@ -1,0 +1,5 @@
+# 451 unknowns, 638141 interior + 62880 boundary quadrature points, uniform grid, Lagrange basis
+method	setting	energy	residual	coeff_norm	L2-error	H1-error	time_s
+direct solve	lambda=0e+00, pos	-1129.482074	9.395637e-14	3.139586e+01	2.161064e-03	1.067862e-01	0.00
+CG	127 iterations, info=0	-1129.482074	1.418878e-10	3.139586e+01	2.161064e-03	1.067862e-01	58.03
+CG (best iterate)	stopped after 120 iterations	-1129.482074	2.082747e-09	3.139586e+01	2.161064e-03	1.067862e-01	nan

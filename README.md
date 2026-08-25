@@ -54,25 +54,47 @@ docker run -it kernel-deep-ritz bash
 ## Running the experiments
 The scripts that produce the results in the paper are in
 [`kernelDR/experiments/`](kernelDR/experiments/). All wall-clock estimates
-quoted below were measured on a single **NVIDIA H200 GPU** (Adam runs are
-GPU-resident; the matrix-form linear-solver and the kernel-interpolation
-runs assemble on GPU but the solve itself uses CPU SciPy/LAPACK).
+quoted below were measured on a single **NVIDIA A100-SXM4-80GB GPU**, on a
+node with an **Intel Xeon Gold 6542Y CPU** (Adam runs are GPU-resident; the
+matrix-form linear-solver and the kernel-interpolation runs assemble on GPU
+but the solve itself uses CPU SciPy/LAPACK).
+
+Every script that involves randomness accepts `--seed` (default `0`), which
+fixes the quadrature point sets drawn during training and, for the neural
+networks, the initialisation of the weights. The interpolation scripts
+(`main_02a`/`main_02b`) are deterministic and therefore take no seed. Seeding
+makes repeated runs well-defined and independent of each other; it does not
+guarantee bitwise reproducibility across different GPUs or library versions.
+To repeat a run, pass a different `--seed` together with a different
+`--results-dir` — except for the neural-network sweeps, which take a list of
+seeds and write one result file per seed, see
+[Repeated runs and error bars](#repeated-runs-and-error-bars).
+
+The reported relative errors are evaluated on a fixed grid of `--n-error` points
+that is independent of the quadrature points used during training. The defaults
+are chosen such that the reported values are converged: a uniform grid of
+`640000` points in two dimensions, and Monte Carlo integration in the
+high-dimensional example, where a tensor-product grid would degenerate.
+`--num-logs` controls how often the errors are evaluated during training.
 
 ### Convergence study: Deep Ritz with kernel ansatz
 Smooth solution (Poisson on `(0, 1)^2`) for Matérn kernels with smoothness
-parameters `k = 0, 1, 2` (≈ 2.25 h per command):
+parameters `k = 0, 1, 2` (≈ 2.5 h per command):
 ```bash
 python kernelDR/experiments/main_01a_smooth_solution.py --k-smoothness 0 --results-dir results_smooth_solution_matern_k0/
 python kernelDR/experiments/main_01a_smooth_solution.py --k-smoothness 1 --results-dir results_smooth_solution_matern_k1/
 python kernelDR/experiments/main_01a_smooth_solution.py --k-smoothness 2 --results-dir results_smooth_solution_matern_k2/
 ```
 Singular solution (Laplace on the pacman domain) for the same three smoothness
-values (≈ 2.25 h per command):
+values (≈ 2.5 h per command):
 ```bash
 python kernelDR/experiments/main_01b_singular_solution.py --k-smoothness 0 --results-dir results_singular_solution_matern_k0/
 python kernelDR/experiments/main_01b_singular_solution.py --k-smoothness 1 --results-dir results_singular_solution_matern_k1/
 python kernelDR/experiments/main_01b_singular_solution.py --k-smoothness 2 --results-dir results_singular_solution_matern_k2/
 ```
+Adding `--save-models` stores the trained model of every configuration, which
+allows the errors to be recomputed afterwards with
+`main_10_recompute_errors.py`, for instance on a different evaluation grid.
 
 ### Convergence study: kernel interpolation reference
 Reference solutions interpolated directly with the same kernels used as baseline
@@ -104,30 +126,56 @@ python kernelDR/experiments/main_03b_singular_solution_neural_network.py --activ
 ```
 
 ### Comparison against the direct linear system (matrix form)
-Assemble and solve the kernel-collocation linear system directly. A tiny
-Tikhonov term (`--regularization 1e-10`, the script default) is added to the
-diagonal to stabilise the Cholesky solve at large `n_per_dim` and high kernel
-smoothness (Matérn `k=2`); the bias is several orders of magnitude below the
-achievable errors, so the convergence rates are unaffected. Each command sweeps
-`k = 0, 1, 2` internally and takes ≈ 1–1.5 h on the H200.
+Assemble and solve the kernel-collocation linear system directly. The system is
+assembled in the **Lagrange basis** of the kernel space (`--flag-lagrange`), the
+same basis the optimiser runs use. The spanned space, and hence the discrete
+problem, is identical to the one in the basis of kernel translates, but the
+condition number of the stiffness matrix differs by up to twelve orders of
+magnitude — for the smooth example it ranges from `4.0e3` to `1.2e15` for the
+translates and stays between `1.3e1` and `2.6e2` in the Lagrange basis. No
+regularisation is therefore needed (`--regularization 0`), and the computed
+errors agree with those obtained in the plain basis to three digits. Each
+command sweeps `k = 0, 1, 2` internally.
+
+Quadrature points that coincide with a centre are dropped before assembly, as in
+the optimiser runs. This matters for `--use-uniform-quadrature`, where a grid
+commensurate with the centres makes many points coincide at once: without the
+filter the assembled system is spoiled (relative `L2`-error `1.03` instead of
+`1.7e-1` at `n_per_dim = 20`, `k = 2`).
+
+Since the ansatz depends linearly on its coefficients, the system is assembled by
+evaluating all basis functions and their gradients once and forming the quadrature
+sums as matrix products (`--assembly vectorized`, the default), which reduces the
+cost from `O(n_points * n_centers^3)` to `O(n_points * n_centers^2)`. The original
+entry-by-entry version is kept as `--assembly loop`; both agree to machine
+precision.
 ```bash
-python kernelDR/experiments/main_04a_smooth_solution_matrix_form.py --results-dir results_matrix_form_smooth_solution/
-python kernelDR/experiments/main_04b_singular_solution_matrix_form.py --results-dir results_matrix_form_singular_solution/
+python kernelDR/experiments/main_04a_smooth_solution_matrix_form.py --flag-lagrange --regularization 0 --results-dir results_matrix_form_smooth_solution/
+python kernelDR/experiments/main_04b_singular_solution_matrix_form.py --flag-lagrange --regularization 0 --results-dir results_matrix_form_singular_solution/
 ```
+The Wendland counterparts in the appendix use the same commands with
+`--kernel wendland`. Add `--save-models` to keep the solutions for a later
+re-evaluation on a different grid, see `main_10_recompute_errors.py`. Each
+command takes ≈ 20 min on a GPU.
 
 ### Iterative-solver comparison (CG vs Adam on fixed vs stochastic quadrature)
 To compare the iterative behaviour of conjugate gradient on the assembled
 linear system against the Adam-based Deep Ritz minimisation, three runs are
 performed for a single configuration (Matérn `k=2`, `n_per_dim = 20`,
-`n_centers = 484`). The CG run is sub-minute; each Adam run takes ≈ 27 min,
-so the whole section takes ≈ 55 min.
+`n_centers = 484`). In the Lagrange basis CG converges in 87 iterations, so the
+solve itself is sub-minute — the cost of the first command is dominated by the
+error evaluation at every `--cg-error-interval`-th iteration (≈ 26 min on a CPU
+with interval 2, ≈ 3 min with `--cg-error-interval 0`, which records only the
+energy and the residual). Each Adam run takes ≈ 7 min on a GPU.
 
 ```bash
 # 1. CG on the fixed uniform-grid linear system (per-iteration energy and
-#    residual norm are written to cg_energy_k_2_n_20.txt).
+#    residual norm are written to cg_energy_k_2_n_20.txt; the relative errors
+#    every --cg-error-interval iterations to cg_convergence_k_2_n_20.txt).
 python kernelDR/experiments/main_04a_smooth_solution_matrix_form.py \
+    --flag-lagrange --regularization 0 \
     --linear-solver cg --use-uniform-quadrature \
-    --list-kmat 2 --list-n-per-dim 20 \
+    --list-kmat 2 --list-n-per-dim 20 --cg-error-interval 2 \
     --results-dir results_matrix_form_smooth_solution_cg_uniform/
 
 # 2. Adam with fixed uniform-grid quadrature (deterministic energy per epoch).
@@ -142,6 +190,73 @@ python kernelDR/experiments/main_01a_smooth_solution.py \
     --k-smoothness 2 --list-n-per-dim 20 \
     --results-dir results_smooth_solution_matern_k2_singlerun/
 ```
+
+CG operates on the assembled system, so its quadrature is fixed by construction;
+`--use-uniform-quadrature` selects the same uniform grid that
+`--fixed-integration-points` uses for Adam. With `--cg-error-interval` the
+relative errors of the current iterate are recorded alongside the energy and the
+residual in `cg_convergence_k_<k>_n_<n>.txt`, which separates how accurately the
+discrete system is solved from how good the resulting approximation is:
+```bash
+python kernelDR/experiments/plot_06_cg_semiconvergence.py \
+    --results-dir results_matrix_form_smooth_solution_cg_uniform/ --k-smoothness 2 --n-per-dim 20
+```
+
+### Optimization versus generalization
+Two scripts report, side by side, how accurately the discrete problem is solved
+(discrete energy, residual, coefficient norm) and how good the resulting
+approximation is (relative errors on the independent grid).
+
+`main_08_regularization_sweep.py` does so over a range of Tikhonov parameters, and
+`plot_07_regularization_sweep.py` plots the result (minutes on a CPU):
+```bash
+python -m kernelDR.experiments.main_08_regularization_sweep \
+    --problem-type smooth --k-smoothness 2 --n-per-dim 20 --use-uniform-quadrature \
+    --results-dir results_regularization_sweep/
+python kernelDR/experiments/plot_07_regularization_sweep.py \
+    --results-file results_regularization_sweep/regularization_sweep_smooth_k2_n20_uniform_ni10000.txt \
+    --reference-error 3.90e-4
+```
+`--n-i` varies the number of fixed quadrature points the system is built from, and
+`--system-dir` reuses a system assembled earlier by `main_04a`/`main_04b`.
+
+`main_09_solver_comparison.py` does so for the direct solve, CG and both Adam
+variants on one and the same discrete problem — same centers, same basis, same
+quadrature points (`--skip-adam` restricts it to the matrix-based solvers):
+```bash
+python -m kernelDR.experiments.main_09_solver_comparison \
+    --problem-type smooth --k-smoothness 2 --n-per-dim 20 \
+    --results-dir results_solver_comparison/
+```
+
+### Influence of the number of quadrature points
+Answers whether a fixed quadrature reaches the accuracy of the resampled
+optimisation by simply using more points. The centers are held fixed while the
+quadrature is refined, so the approximation error stays constant and only the
+quadrature error changes. `--skip-adam` restricts the run to the matrix-based
+solvers, which makes each configuration cheap.
+
+```bash
+for problem in smooth singular; do
+  for k in 0 1 2; do
+    for ni in 10000 40000 160000 640000; do
+      python -m kernelDR.experiments.main_09_solver_comparison \
+          --problem-type $problem --k-smoothness $k --n-per-dim 20 \
+          --flag-lagrange --skip-adam --use-uniform-quadrature \
+          --list-regularization 0 --n-i $ni --n-b $((ni/10)) \
+          --chunk-size 20000 \
+          --results-dir results_ni_sweep_${problem}_k${k}/ni${ni}/
+    done
+  done
+done
+```
+24 runs, a few minutes each on a GPU; the `n_i = 640000` ones dominate. Use
+`--chunk-size` to bound the memory of the `(n_points, n_centers, dim)` gradient
+tensor during assembly.
+
+The per-run files are consolidated into one table per problem and smoothness
+(one row per quadrature size) for plotting, see
+`reference_results/results_ni_sweep_{smooth,singular}/errors_k_*.txt`.
 
 ### High-dimensional example
 Section 4.3 of the paper applies the method to a `d = 10` Poisson problem with
@@ -170,12 +285,62 @@ python -m kernelDR.experiments.main_06_highdim_diagonal_neural_network \
     --n-epochs 10000 --early-stopping-patience 500 \
     --results-dir results_highdim/main06_d10_l2_gelu/
 ```
+The errors of the high-dimensional example are evaluated by Monte Carlo
+integration rather than on a uniform grid, which in `d = 10` would place only
+`floor(n^(1/d))` points per axis. `HighDimDiagonalExample` overrides the error
+routines accordingly, and `--n-error` sets the number of samples per repetition,
+of which five are averaged.
 
 For a deeper per-run inspection (convergence curves, matrix-trajectory plots,
 etc.), use
 ```bash
 python kernelDR/experiments/main_05b_highdim_diagonal_evaluate.py --help
 ```
+
+### Integration diagnostics
+Quantifies how accurate the quadrature actually is, which is what justifies the
+`--n-error` default. Three things are measured: the spread of the energy over
+independent Monte Carlo draws, how well a grid reproduces the closed-form norms
+of the reference solution, and how much the reported errors of a trained model
+change when the evaluation grid is refined.
+
+```bash
+python -m kernelDR.experiments.main_07_integration_diagnostics \
+    --problem-type smooth --results-dir results_integration_diagnostics/
+python -m kernelDR.experiments.main_07_integration_diagnostics \
+    --problem-type singular --results-dir results_integration_diagnostics/
+```
+Pass `--model-path` (a checkpoint written with `--save-models`) to include the
+error-refinement table for that model. On the grid used throughout, going from
+`640000` to `1440000` evaluation points changes the reported errors by less than
+`0.2 %` in the `L2`-norm and `0.7 %` in the `H1`-norm.
+
+Note that on the pacman domain a uniform grid resolves the `H1` semi-norm of the
+reference solution only to a few percent, and not monotonically, because the grid
+cannot follow the sector boundary exactly. This affects the absolute values of the
+singular `H1`-errors but not the convergence rates, since it is a constant factor.
+
+### Which command produces which figure
+The figures in the paper are typeset from the result files listed below. All of
+them are shipped in `reference_results/`, so the paper can be rebuilt without
+re-running anything.
+
+| Paper | Content | Result directory | Section above |
+|---|---|---|---|
+| Fig. 1, 7 | kernel deep Ritz vs. interpolation | `results_{smooth,singular}_solution/`, `results_interpolation_{smooth,singular}_solution/` | Convergence study, interpolation reference |
+| Fig. 2, 8 | kernel vs. neural network | as above plus `results_neural_network_*_gelu_depth2/` | Comparison against neural networks |
+| Fig. 3, 9 | kernel deep Ritz vs. assembled system | as above plus `results_matrix_form_{smooth,singular}_solution/` | Direct linear system |
+| Fig. 4, 5 | energy over the iterations, CG semi-convergence | `results_matrix_form_smooth_solution_cg_uniform/`, `results_smooth_solution_matern_k2_{fixed,singlerun}/` | Iterative-solver comparison |
+| Fig. 6 | the singular reference solution | none, drawn analytically | — |
+| Fig. 10 | error vs. number of quadrature points | `results_ni_sweep_{smooth,singular}/` | Influence of the number of quadrature points |
+| Fig. 11–14 | Wendland counterparts of Fig. 1, 3, 7, 9 | the `*_wendland` directories | Wendland kernel |
+| Fig. 15–18 | network activation and depth sweeps | `results_neural_network_*_depth*/` | Neural network activation and depth sweeps |
+| Tab. 2 | solvers on one discrete problem | `results_solver_comparison_lagrange/` | Optimization versus generalization |
+| Tab. 3 | high-dimensional example | `results_highdim/` | High-dimensional example |
+
+The `_plain_basis` directories hold the earlier runs in the basis of kernel
+translates. They are kept because the condition numbers quoted in the text come
+from them, but no figure reads them.
 
 ### Plotting
 The figures in the paper itself are typeset with `pgfplots` inside the LaTeX
@@ -247,6 +412,13 @@ python kernelDR/experiments/plot_04_optimizer_comparison.py \
     --labels "CG (uniform)" --labels "Adam (uniform)" --labels "Adam (stochastic)" \
     --k-smoothness 2 --n-per-dim 20 --output optimizer_comparison.pdf
 ```
+Error versus the number of quadrature points, for both examples side by side,
+with the resampled deep Ritz errors as dashed reference lines:
+```bash
+python kernelDR/experiments/plot_08_quadrature_sweep.py --norm L2 --output quadrature_sweep_L2.pdf
+python kernelDR/experiments/plot_08_quadrature_sweep.py --norm H1 --output quadrature_sweep_H1.pdf
+```
+
 Pass `--help` to any script to see the remaining options (kernel shape
 parameter `ep`, title suffixes, etc.).
 
@@ -257,16 +429,19 @@ main-body neural-network comparison and (ii) the repeat of the convergence
 study with the compactly supported Wendland kernels.
 
 ### Neural network activation and depth sweeps
-Each command runs the full width sweep for one configuration (≈ 2.5–4.5 h per
-command depending on depth).
+Each command runs the full width sweep for one configuration and one seed
+(≈ 2.5–4.5 h per command depending on depth). The sweeps are repeated for
+several seeds, see [Repeated runs and error bars](#repeated-runs-and-error-bars)
+below; `--list-seeds` can be given repeatedly to run several seeds in one
+process, and every seed writes its own `convergence_results_seed<SEED>.txt`.
 
 **Activation functions (depth 2).** Sweep all six activations at fixed depth 2:
 ```bash
 for act in tanh relu gelu silu softplus sin; do
     python kernelDR/experiments/main_03a_smooth_solution_neural_network.py --activation $act --num-layers 2 \
-        --results-dir results_neural_network_smooth_solution_${act}_depth2/
+        --list-seeds 0 --results-dir results_neural_network_smooth_solution_${act}_depth2/
     python kernelDR/experiments/main_03b_singular_solution_neural_network.py --activation $act --num-layers 2 \
-        --results-dir results_neural_network_singular_solution_${act}_depth2/
+        --list-seeds 0 --results-dir results_neural_network_singular_solution_${act}_depth2/
 done
 ```
 
@@ -308,6 +483,121 @@ python kernelDR/experiments/main_03b_singular_solution_neural_network.py --activ
     --list-num-neurons-per-layer 7 --results-dir results_neural_network_singular_solution_gelu_depth8/
 ```
 
+### Repeated runs and error bars
+Both the deep Ritz runs with the kernel ansatz and the neural-network sweeps are
+repeated for three RNG seeds, so that the figures show the median with error bars
+spanning the minimum and the maximum instead of a single run.
+
+For the kernel runs the variability is small — the largest ratio between the
+maximum and the minimum error over three seeds is about `1.5` at the finest mesh
+norm for the smooth example and about `1.02` for the singular one, in which case
+the error bars are thinner than the line width. The network runs vary far more,
+up to a factor of `345` for the deeper architectures.
+
+The kernel sweep is one process per (problem, smoothness, seed, mesh size). One
+`main_01` call sweeps all mesh sizes sequentially, so splitting on
+`--list-n-per-dim` as well is what makes the sweep parallel:
+```bash
+# seeds 1 and 2 (seed 0 is the original run); 132 jobs, ~14 GPU-h in total
+for seed in 1 2; do
+  for prob in smooth singular; do
+    [ $prob = smooth ] && script=main_01a_smooth_solution || script=main_01b_singular_solution
+    for k in 0 1 2; do
+      for n in 1 2 4 6 8 10 12 14 16 18 20; do
+        python -m kernelDR.experiments.$script \
+            --k-smoothness $k --seed $seed --list-n-per-dim $n \
+            --results-dir results_kernel_seeds/${prob}_k${k}_seed${seed}/n${n}/
+      done
+    done
+  done
+done
+```
+Give each process its own `--results-dir`: `main_01` truncates `timings.txt` at
+startup and writes `settings.txt`, so concurrent processes sharing a directory
+would clobber both. The `conv_results_*` file names are unique per mesh size, so
+the split runs merge by copying them together.
+
+> **Note.** `aggregate_deep_ritz_errors.py` rebuilds `errors_k_*.txt` from the
+> `conv_results_*` files of a single run. Its file-name pattern does not match the
+> `_seed{N}` files, so re-running it on a directory that already holds a
+> multi-seed aggregate would silently drop the median and the error-bar columns.
+
+The neural-network sweeps are repeated for several RNG seeds, so
+that the figures can show the spread over the repetitions instead of a single
+run. One process handles one (configuration, seed) pair; the seeds are
+independent of each other, while within one seed the random streams are paired
+across the widths (the RNG is re-seeded per width). A single (width, seed) run
+therefore reproduces exactly the corresponding row of the full sweep, which
+makes it possible to re-run individual configurations without repeating the
+whole sweep.
+
+The runs are small — at most a few hundred parameters, peaking below 100 MB of
+device memory — and leave the GPU mostly idle, so several of them should be
+executed concurrently. The launcher script does this for the complete appendix
+sweep (6 activations at depth 2, plus depths 1, 4 and 8, on both problems):
+```bash
+# Distribute the sweep over four GPUs, six concurrent runs on each:
+GPUS="0 1 2 3" JOBS_PER_GPU=6 SEEDS="0 1 2" ./run_appendix_seed_sweeps.sh
+
+# Single device (or CPU): one queue, NPAR runs at a time
+NPAR=8 SEEDS="0 1 2" ./run_appendix_seed_sweeps.sh
+```
+This prepares 54 runs (9 configurations × 2 problems × 3 seeds). With `GPUS` set,
+the runs are distributed over the given devices round-robin, each device gets its
+own queue of `JOBS_PER_GPU` concurrent runs pinned via `CUDA_VISIBLE_DEVICES`, and
+each process is limited to `OMP_THREADS` (default 2) CPU threads so that many
+processes can share the host. Set `DRY_RUN=1` to print the job list and the
+per-device distribution without running anything, `SAVE_MODELS=1` to keep the
+trained networks, and `OUT_ROOT` to write elsewhere than the current directory.
+Per-run logs land in `logs_appendix_sweeps/`. Sequentially the whole sweep is
+roughly 135–160 GPU-h, so the concurrency is what makes it practical.
+
+Afterwards, each results directory is condensed into one file holding the
+summary statistics over its seeds:
+```bash
+for d in results_neural_network_*_depth*/; do
+    python -m kernelDR.experiments.aggregate_seed_runs --results-dir "$d"
+done
+```
+This writes `convergence_results_aggregated.txt` and prints the spread per
+configuration. The column order is chosen so that the `\addplot table[x index=1,
+y index=2]` statements in the LaTeX sources keep working unchanged:
+
+| index | column | meaning |
+| --- | --- | --- |
+| 0 | `neurons` | neurons per layer (the key the repetitions are grouped by) |
+| 1 | `n_params` | total number of trainable parameters |
+| 2, 3, 4 | `L2_median`, `H1_median`, `loss_median` | median over the seeds |
+| 5 | `n_seeds` | number of repetitions this row was aggregated from |
+| 6 … 12 | `L2_min`, `L2_max`, `L2_err_minus`, `L2_err_plus`, `L2_mean`, `L2_std`, `L2_geomean` | spread of the relative $L^2$-error |
+| 13 … 19 | `H1_…` | same for the relative $H^1$-error |
+| 20 … 26 | `loss_…` | same for the final loss (`loss_geomean` is `nan`, the loss is negative) |
+
+`*_err_minus` / `*_err_plus` are the distances from the median to the smallest
+and largest repetition, i.e. the asymmetric error bars belonging to the median:
+```latex
+\addplot[..., error bars/.cd, y dir=both, y explicit]
+    table[x index=1, y index=2, y error minus index=8, y error plus index=9] {..._aggregated.txt};
+```
+For a shaded min-max band instead, use the `*_min` / `*_max` columns with
+`\addplot[name path=…]` and `\addplot fill between`.
+
+The script is generic: `--pattern`, `--key-column`, `--passthrough-columns` and
+`--stat-columns` make it applicable to any set of result files sharing a schema,
+for instance the `summary.txt` files of the high-dimensional runs.
+
+To inspect the sweeps outside LaTeX, `plot_05_nn_hyperparameter_sweep.py` draws
+the median as a line and the min-max range over the seeds as a band. Directories
+without an aggregated file (e.g. the single-run reference data of the first
+submission) are drawn as a plain line, so old and new results can be compared
+directly:
+```bash
+python kernelDR/experiments/plot_05_nn_hyperparameter_sweep.py \
+    --results-dirs results_neural_network_smooth_solution_gelu_depth2/ \
+    --results-dirs results_neural_network_smooth_solution_tanh_depth2/ \
+    --labels "GELU" --labels "tanh" --output activations_smooth.pdf
+```
+
 ### Wendland kernel
 All scripts in [`kernelDR/experiments/`](kernelDR/experiments/) support the
 `--kernel {matern,wendland}` flag (Matérn is the default); `--k-smoothness`
@@ -315,13 +605,12 @@ selects the smoothness as for Matérn.
 
 Deep Ritz convergence (≈ 2.25 h per command):
 ```bash
-python kernelDR/experiments/main_01a_smooth_solution.py --kernel wendland --k-smoothness 0 --results-dir results_smooth_solution_wendland_k0/
-python kernelDR/experiments/main_01a_smooth_solution.py --kernel wendland --k-smoothness 1 --results-dir results_smooth_solution_wendland_k1/
-python kernelDR/experiments/main_01a_smooth_solution.py --kernel wendland --k-smoothness 2 --results-dir results_smooth_solution_wendland_k2/
-
-python kernelDR/experiments/main_01b_singular_solution.py --kernel wendland --k-smoothness 0 --results-dir results_singular_solution_wendland_k0/
-python kernelDR/experiments/main_01b_singular_solution.py --kernel wendland --k-smoothness 1 --results-dir results_singular_solution_wendland_k1/
-python kernelDR/experiments/main_01b_singular_solution.py --kernel wendland --k-smoothness 2 --results-dir results_singular_solution_wendland_k2/
+for k in 0 1 2; do
+    python kernelDR/experiments/main_01a_smooth_solution.py --kernel wendland --k-smoothness $k \
+        --n-error 640000 --num-logs 50 --save-models --results-dir results_smooth_solution_wendland_k$k/
+    python kernelDR/experiments/main_01b_singular_solution.py --kernel wendland --k-smoothness $k \
+        --n-error 640000 --num-logs 50 --save-models --results-dir results_singular_solution_wendland_k$k/
+done
 ```
 Interpolation reference (sweeps `k = 0, 1, 2` internally; ≈ 5–10 min per command):
 ```bash
@@ -330,8 +619,8 @@ python kernelDR/experiments/main_02b_singular_solution_interpolation.py --kernel
 ```
 Direct linear system (≈ 1–1.5 h per command):
 ```bash
-python kernelDR/experiments/main_04a_smooth_solution_matrix_form.py --kernel wendland --results-dir results_matrix_form_smooth_solution_wendland/
-python kernelDR/experiments/main_04b_singular_solution_matrix_form.py --kernel wendland --results-dir results_matrix_form_singular_solution_wendland/
+python kernelDR/experiments/main_04a_smooth_solution_matrix_form.py --kernel wendland --n-error 640000 --save-models --results-dir results_matrix_form_smooth_solution_wendland/
+python kernelDR/experiments/main_04b_singular_solution_matrix_form.py --kernel wendland --n-error 640000 --save-models --results-dir results_matrix_form_singular_solution_wendland/
 ```
 
 ## Questions

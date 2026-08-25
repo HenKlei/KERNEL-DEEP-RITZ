@@ -17,12 +17,16 @@ def output_path(filename):
     return os.path.join(OUTPUT_DIR, filename)
 
 
-def save_settings(results_dir, local_vars):
+def save_settings(results_dir, local_vars, filename="settings.txt"):
     """Save experiment settings to a text file.
 
     Call as: save_settings(results_dir, locals())
+
+    Pass a seed-dependent ``filename`` when several runs write into the same
+    results directory concurrently (see the seed sweeps in main_03a/main_03b),
+    so that the runs do not overwrite each other's settings file.
     """
-    with open(os.path.join(results_dir, "settings.txt"), "w") as f:
+    with open(os.path.join(results_dir, filename), "w") as f:
         f.write(f"date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         for key, val in local_vars.items():
             if key.startswith("_") or callable(val) or inspect.ismodule(val):
@@ -154,14 +158,65 @@ def read_interpolation_results(results_dir, k_smoothness):
     return _read_h_l2_h1(filepath)
 
 
+AGGREGATED_NN_FILENAME = "convergence_results_aggregated.txt"
+
+
+def nn_results_path(results_dir):
+    """Locate the NN sweep results file in ``results_dir``.
+
+    Prefers the aggregate over several seeds (written by aggregate_seed_runs.py),
+    then the single-run file of the original submission, then a lone per-seed
+    file. Returns the path, or raises FileNotFoundError.
+    """
+    candidates = [AGGREGATED_NN_FILENAME, "convergence_results.txt"]
+    for name in candidates:
+        path = os.path.join(results_dir, name)
+        if os.path.exists(path):
+            return path
+    per_seed = sorted(f for f in os.listdir(results_dir)
+                      if f.startswith("convergence_results_seed") and f.endswith(".txt"))
+    if len(per_seed) == 1:
+        return os.path.join(results_dir, per_seed[0])
+    if per_seed:
+        raise FileNotFoundError(
+            f"{results_dir} holds {len(per_seed)} per-seed files but no {AGGREGATED_NN_FILENAME}; "
+            f"run aggregate_seed_runs.py on it first.")
+    raise FileNotFoundError(f"No NN sweep results found in {results_dir}")
+
+
 def read_nn_results(results_dir):
-    """Returns (num_params, L2, H1) for the NN sweep file."""
-    filepath = os.path.join(results_dir, "convergence_results.txt")
+    """Returns (num_params, L2, H1) for the NN sweep file.
+
+    For an aggregated file the returned errors are the medians over the seeds;
+    use read_nn_results_with_spread to also get the min-max band.
+    """
+    filepath = nn_results_path(results_dir)
     data, header_cols = _load_txt_with_header(filepath)
-    np_idx = _column_index(header_cols, "Total number of parameters", "num_params") or 1
-    l2_idx = _column_index(header_cols, "L2-error", "L2_err", "L2") or 2
-    h1_idx = _column_index(header_cols, "H1-error", "H1_err", "H1") or 3
+    np_idx = _column_index(header_cols, "Total number of parameters", "n_params", "num_params") or 1
+    l2_idx = _column_index(header_cols, "L2-error", "L2_median", "L2_err", "L2") or 2
+    h1_idx = _column_index(header_cols, "H1-error", "H1_median", "H1_err", "H1") or 3
     return data[:, np_idx], data[:, l2_idx], data[:, h1_idx]
+
+
+def read_nn_results_with_spread(results_dir):
+    """Returns (num_params, L2, H1, spread) for the NN sweep file.
+
+    ``spread`` is None for single-run files, otherwise a dict with keys
+    ``n_seeds``, ``L2_min``, ``L2_max``, ``H1_min``, ``H1_max`` — the band to
+    draw around the median.
+    """
+    filepath = nn_results_path(results_dir)
+    data, header_cols = _load_txt_with_header(filepath)
+    np_idx = _column_index(header_cols, "Total number of parameters", "n_params", "num_params") or 1
+    l2_idx = _column_index(header_cols, "L2-error", "L2_median", "L2_err", "L2") or 2
+    h1_idx = _column_index(header_cols, "H1-error", "H1_median", "H1_err", "H1") or 3
+
+    spread = None
+    lowered = [c.lower() for c in header_cols] if header_cols else []
+    needed = ["n_seeds", "l2_min", "l2_max", "h1_min", "h1_max"]
+    if all(name in lowered for name in needed):
+        spread = {name: data[:, lowered.index(name)] for name in needed}
+    return data[:, np_idx], data[:, l2_idx], data[:, h1_idx], spread
 
 
 def read_matrix_form_results(results_dir, k_smoothness):

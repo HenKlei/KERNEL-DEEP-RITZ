@@ -1,0 +1,6 @@
+# energy of the exact solution, 20 independent Monte Carlo draws per row
+# 3 deterministic point(s) with an unbounded reference gradient were excluded from the uniform-grid column
+n_i	n_b	mc_mean	mc_std	mc_rel_std	uniform_grid
+10000	1000	-1.131274398482e+03	8.943468952426e+00	7.905658e-03	-1.130307947481e+03
+40000	4000	-1.128988860756e+03	5.504762695485e+00	4.875834e-03	-1.129722233501e+03
+160000	16000	-1.128676242460e+03	2.990691190366e+00	2.649733e-03	-1.129571633053e+03

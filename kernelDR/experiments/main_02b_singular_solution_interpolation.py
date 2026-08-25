@@ -23,7 +23,7 @@ def main(
     kernel: Annotated[str, cyclopts.Parameter(help="Kernel type.")] = "matern",
     ep: Annotated[float, cyclopts.Parameter(help="Kernel shape parameter.")] = 1.0,
     penalty_parameter: Annotated[float, cyclopts.Parameter(help="Penalty parameter for boundary conditions.")] = 100.0,
-    n_error: Annotated[int, cyclopts.Parameter(help="Number of error evaluation points.")] = 10201,
+    n_error: Annotated[int, cyclopts.Parameter(help="Number of error evaluation points. The default resolves the approximation error, which oscillates on the scale of the centers; a coarser grid understates the H1-errors and biases fitted convergence rates (see the README).")] = 640000,
     angle: Annotated[float, cyclopts.Parameter(help="Angle of the pacman domain (in radians).")] = 4.71238898038469,
     radius: Annotated[float, cyclopts.Parameter(help="Radius of the pacman domain.")] = 1.5,
     list_kmat: Annotated[tuple[int, ...], cyclopts.Parameter(help="Kernel smoothness values.")] = (0, 1, 2),

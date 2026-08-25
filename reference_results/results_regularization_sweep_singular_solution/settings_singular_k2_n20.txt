@@ -1,0 +1,21 @@
+date: 2026-08-08 10:42:18
+problem_type: singular
+kernel: matern
+k_smoothness: 2
+ep: 1.0
+n_per_dim: 20
+penalty_parameter: 100.0
+angle: 4.71238898038469
+radius: 1.5
+n_i: 640000
+n_b: 64000
+n_error: 40000
+use_uniform_quadrature: True
+solver: pos
+system_dir: 
+list_regularization: (0.0, 1e-16, 1e-15, 1e-14, 1e-13, 1e-12, 1e-11, 1e-10, 1e-09, 1e-08, 1e-07, 1e-06, 1e-05, 0.0001, 0.001, 0.01, 0.1, 1.0)
+chunk_size: 20000
+seed: 0
+results_dir: /tmp/claude-1000/-home-hendrik-kleikamp-Projects-kernel-deep-ritz-code-deep-ritz-and-kernel-methods/544c89ad-c169-449d-b96c-b0ad78adca56/scratchpad/local/ni_sweep_singular/
+device: cpu
+problem: <kernelDR.problem_definitions.laplace_pacman.LaplaceOnPacmanDomainSingularSolution object at 0x715598c34560>

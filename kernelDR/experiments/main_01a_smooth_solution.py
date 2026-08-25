@@ -8,10 +8,10 @@ from torch import optim
 from torch.optim import lr_scheduler
 import os
 
-from kernelDR.models.model_kernels import FlatKernelModel, TwoLayerKernelModel
+from kernelDR.models.model_kernels import FlatKernelModel, TwoLayerKernelModel, save_kernel_model
 from kernelDR.problem_definitions.poisson_higher_regularity import PoissonHigherRegularity
 from kernelDR.training import train_model
-from kernelDR.utils import count_parameters, peak_memory_mb, reset_peak_memory
+from kernelDR.utils import count_parameters, peak_memory_mb, reset_peak_memory, set_seed
 from kernelDR.experiments.plot_utils import save_settings
 
 
@@ -27,14 +27,16 @@ def main(
     penalty_parameter: Annotated[float, cyclopts.Parameter(help="Penalty parameter for boundary conditions.")] = 100.0,
     n_i: Annotated[int, cyclopts.Parameter(help="Number of interior sample points.")] = 10000,
     n_b: Annotated[int, cyclopts.Parameter(help="Number of boundary sample points.")] = 1000,
-    n_error: Annotated[int, cyclopts.Parameter(help="Number of error evaluation points.")] = 10201,
+    n_error: Annotated[int, cyclopts.Parameter(help="Number of error evaluation points. The default resolves the approximation error, which oscillates on the scale of the centers; a coarser grid understates the H1-errors and biases fitted convergence rates (see the README).")] = 640000,
     optimizer_type: Annotated[str, cyclopts.Parameter(help="Optimizer: 'adam' or 'lbfgs'.")] = "adam",
     n_epochs: Annotated[int, cyclopts.Parameter(help="Number of training epochs.")] = 10000,
     lr: Annotated[float, cyclopts.Parameter(help="Initial learning rate.")] = 5e-2,
     gamma: Annotated[float, cyclopts.Parameter(help="Learning rate decay factor (Adam only).")] = 0.5,
-    num_logs: Annotated[int, cyclopts.Parameter(help="Number of log points.")] = 400,
+    num_logs: Annotated[int, cyclopts.Parameter(help="Number of log points.")] = 50,
     early_stopping_patience: Annotated[int, cyclopts.Parameter(help="Stop training if no improvement for this many epochs (0 to disable).")] = 0,
     fixed_integration_points: Annotated[bool, cyclopts.Parameter(help="Use fixed integration points instead of random.")] = False,
+    seed: Annotated[int, cyclopts.Parameter(help="RNG seed for the quadrature point sampling. Use a separate --results-dir per seed when repeating a run.")] = 0,
+    save_models: Annotated[bool, cyclopts.Parameter(help="Save the trained model of every configuration, so that it can be re-evaluated later (see main_07_integration_diagnostics.py).")] = False,
     list_n_per_dim: Annotated[tuple[int, ...], cyclopts.Parameter(help="Centers per dimension.")] = (1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
     results_dir: Annotated[str, cyclopts.Parameter(help="Results output directory.")] = "",
 ):
@@ -42,6 +44,7 @@ def main(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.set_default_device(device)
+    set_seed(seed)
 
     problem = PoissonHigherRegularity(penalty_parameter=penalty_parameter, device=device)
 
@@ -122,6 +125,11 @@ def main(
         with open(results_dir + "timings.txt", "a") as f:
             f.write(f"{n_per_dim}\t{len(centers)}\t{num_params}\t{actual_epochs}\t"
                     f"{elapsed_time:.2f}\t{run_peak_mem_mb:.2f}\n")
+
+        if save_models:
+            model_path = results_dir + f"model_k_{k_smoothness}_ep_{ep}_n_{n_per_dim}.pt"
+            save_kernel_model(model, model_path)
+            print(f"Saved trained model to {model_path}")
 
         # Free GPU memory from this run
         del model, optimizer, scheduler, centers

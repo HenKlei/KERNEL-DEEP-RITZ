@@ -24,12 +24,28 @@ import os
 import re
 import sys
 from glob import glob
+from statistics import median
+
+
+def conv_n_seed(filename: str) -> tuple[int, int] | None:
+    """Extract ``(n_per_dim, seed)`` from a conv_results file name.
+
+    Matches both ``conv_results_{k}_{ep}_{n}_{epochs}.txt`` (the run with the
+    default seed) and ``conv_results_{k}_{ep}_{n}_{epochs}_seed{s}.txt`` (the
+    repetitions), so that a directory holding several seeds is aggregated into
+    one row per ``n_per_dim`` with the spread over the repetitions.
+    """
+    m = re.match(r"conv_results_\d+_[\d\.]+_(\d+)_\d+(?:_seed(\d+))?\.txt$",
+                 os.path.basename(filename))
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)) if m.group(2) is not None else 0
 
 
 def conv_n(filename: str) -> int | None:
-    """Extract ``n_per_dim`` from ``conv_results_{k}_{ep}_{n}_{epochs}.txt``."""
-    m = re.match(r"conv_results_\d+_[\d\.]+_(\d+)_\d+\.txt$", os.path.basename(filename))
-    return int(m.group(1)) if m else None
+    """Extract ``n_per_dim`` from a conv_results file name."""
+    parsed = conv_n_seed(filename)
+    return parsed[0] if parsed else None
 
 
 def last_l2_h1(path: str) -> tuple[float, float] | None:
@@ -47,6 +63,53 @@ def last_l2_h1(path: str) -> tuple[float, float] | None:
         return float(toks[3]), float(toks[4])
     except (IndexError, ValueError):
         return None
+
+
+def recomputed_n_error(path: str) -> int:
+    """Extract the evaluation grid size from a recomputed-errors filename."""
+    m = re.search(r"recomputed_errors_nerror(\d+)\.txt$", os.path.basename(path))
+    return int(m.group(1)) if m else -1
+
+
+def load_recomputed(results_dir: str, k: int | None = None):
+    """Load errors recomputed on a finer grid by ``main_10_recompute_errors``.
+
+    The errors logged during training are evaluated on the comparatively coarse
+    default grid, which does not resolve the approximation error at the finer
+    center distributions. When a recomputed file is present its values are
+    preferred; the finest available grid wins if there are several.
+
+    Returns ``({n_per_dim: (L2, H1)}, n_error, path)``, or ``({}, None, None)``.
+    """
+    candidates = glob(os.path.join(results_dir, "recomputed_errors_nerror*.txt"))
+    candidates = [c for c in candidates if recomputed_n_error(c) > 0]
+    if not candidates:
+        return {}, None, None
+
+    path = max(candidates, key=recomputed_n_error)
+    out: dict[int, tuple[float, float]] = {}
+    header: list[str] | None = None
+    with open(path) as f:
+        for line in f:
+            s = line.rstrip("\n")
+            if not s.strip() or s.lstrip().startswith("#"):
+                continue
+            toks = s.split("\t")
+            if header is None:
+                header = toks
+                continue
+            row = dict(zip(header, toks))
+            if k is not None and row.get("k") not in (None, "None", ""):
+                try:
+                    if int(row["k"]) != k:
+                        continue
+                except ValueError:
+                    pass
+            try:
+                out[int(row["n"])] = (float(row["L2-error"]), float(row["H1-error"]))
+            except (KeyError, ValueError):
+                continue
+    return out, recomputed_n_error(path), path
 
 
 def load_timings(results_dir: str) -> dict[int, dict[str, float]]:
@@ -86,7 +149,8 @@ def load_timings(results_dir: str) -> dict[int, dict[str, float]]:
     return out
 
 
-def aggregate(results_dir: str, out_path: str) -> bool:
+def aggregate(results_dir: str, out_path: str, k: int | None = None,
+              use_recomputed: bool = True) -> bool:
     """Build a single ``errors_k_*.txt`` from per-``n_per_dim`` conv files.
 
     Schema written (one row per ``n_per_dim``, indices in brackets):
@@ -94,37 +158,104 @@ def aggregate(results_dir: str, out_path: str) -> bool:
         n[0]  h ~ 1 / sqrt(n)[1]  n_centers[2]
             L2-error[3]  H1-error[4]  time_train_s[5]  peak_mem_mb[6]
 
+    If several seeds are present (files ``..._seed{s}.txt`` next to the run with
+    the default seed), the error columns hold the median over the repetitions and
+    the spread is appended:
+
+        n_seeds[7]  L2_min[8]  L2_max[9]  L2_err_minus[10]  L2_err_plus[11]
+            H1_min[12]  H1_max[13]  H1_err_minus[14]  H1_err_plus[15]
+
+    so that indices 1, 3 and 4 keep their meaning for existing plot statements.
+
     Matches the schema of the interpolation and matrix-form
     ``errors_k_*.txt`` files. For flat-kernel models (the default for
     ``main_01a``/``main_01b``) ``n_centers`` equals the number of trainable
     parameters, which is the natural x-axis for the convergence plots.
     """
     timings = load_timings(results_dir)
-    rows: list[tuple] = []
+    recomputed, n_error, recomputed_path = ({}, None, None)
+    if use_recomputed:
+        recomputed, n_error, recomputed_path = load_recomputed(results_dir, k)
+
+    # Collect every seed of every resolution: {n_per_dim: {seed: (L2, H1)}}
+    per_n: dict[int, dict[int, tuple[float, float]]] = {}
+    n_from_recomputed = 0
     for conv in glob(os.path.join(results_dir, "conv_results_*.txt")):
-        n = conv_n(conv)
-        if n is None:
+        parsed = conv_n_seed(conv)
+        if parsed is None:
+            continue
+        n, seed = parsed
+        if n in recomputed:
+            # A recomputed value is a single number per resolution, so it replaces
+            # the whole set of repetitions and the row carries no spread.
+            per_n[n] = {0: recomputed[n]}
+            n_from_recomputed += 1
             continue
         l2h1 = last_l2_h1(conv)
         if l2h1 is None:
             continue
-        l2, h1 = l2h1
-        h = 1.0 / (n + 1)
-        meta = timings.get(n, {})
-        n_centers = int(meta.get("n_centers", 0))
-        t = meta.get("time_train_s", 0.0)
-        peak_mem = meta.get("peak_mem_mb", 0.0)
-        rows.append((n, h, n_centers, l2, h1, t, peak_mem))
-    if not rows:
+        per_n.setdefault(n, {})[seed] = l2h1
+    if not per_n:
         return False
-    rows.sort()
+
+    n_seeds_max = max(len(v) for v in per_n.values())
+    rows: list[tuple] = []
+    for n in sorted(per_n):
+        seeds = per_n[n]
+        l2s = [v[0] for v in seeds.values()]
+        h1s = [v[1] for v in seeds.values()]
+        med_l2, med_h1 = median(l2s), median(h1s)
+        meta = timings.get(n, {})
+        rows.append((
+            n, 1.0 / (n + 1), int(meta.get("n_centers", 0)), med_l2, med_h1,
+            meta.get("time_train_s", 0.0), meta.get("peak_mem_mb", 0.0),
+            len(seeds),
+            min(l2s), max(l2s), med_l2 - min(l2s), max(l2s) - med_l2,
+            min(h1s), max(h1s), med_h1 - min(h1s), max(h1s) - med_h1,
+        ))
+
     with open(out_path, "w") as f:
-        f.write(
-            "n\th ~ 1 / sqrt(n)\tn_centers\t"
-            "L2-error\tH1-error\ttime_train_s\tpeak_mem_mb\n"
-        )
-        for n, h, nc, l2, h1, t, pm in rows:
-            f.write(f"{n}\t{h}\t{nc}\t{l2}\t{h1}\t{t:.4f}\t{pm:.2f}\n")
+        if n_seeds_max > 1:
+            # Indices 1, 3 and 4 keep their meaning, so existing plot statements
+            # continue to work; the spread is appended for the error bars.
+            f.write(
+                "n\th ~ 1 / sqrt(n)\tn_centers\tL2-error\tH1-error\t"
+                "time_train_s\tpeak_mem_mb\tn_seeds\t"
+                "L2_min\tL2_max\tL2_err_minus\tL2_err_plus\t"
+                "H1_min\tH1_max\tH1_err_minus\tH1_err_plus\n"
+            )
+            for r in rows:
+                f.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{r[4]}\t{r[5]:.4f}\t{r[6]:.2f}\t"
+                        f"{r[7]}\t{r[8]:.12g}\t{r[9]:.12g}\t{r[10]:.12g}\t{r[11]:.12g}\t"
+                        f"{r[12]:.12g}\t{r[13]:.12g}\t{r[14]:.12g}\t{r[15]:.12g}\n")
+        else:
+            # Only one run per resolution: keep the classic schema rather than
+            # writing zero-length error bars, which would suggest that repetitions
+            # were performed and showed no variability.
+            f.write(
+                "n\th ~ 1 / sqrt(n)\tn_centers\t"
+                "L2-error\tH1-error\ttime_train_s\tpeak_mem_mb\n"
+            )
+            for r in rows:
+                f.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]}\t{r[4]}\t{r[5]:.4f}\t{r[6]:.2f}\n")
+    if n_seeds_max > 1:
+        counts = sorted({len(v) for v in per_n.values()})
+        print(f"    aggregated over {counts if len(counts) > 1 else counts[0]} seed(s) per "
+              f"resolution, median with min/max appended")
+
+    # Reported on stdout rather than as a comment line in the file: the plotting
+    # code reads the first line as the column header, so the schema has to stay
+    # exactly as the other errors_k_*.txt files.
+    if n_from_recomputed:
+        print(f"    using errors recomputed on {n_error} points for {n_from_recomputed}/{len(rows)} "
+              f"row(s) from {os.path.basename(recomputed_path)}")
+        missing = sorted(set(recomputed) - {row[0] for row in rows})
+        if missing:
+            print(f"    note: {os.path.basename(recomputed_path)} also holds n = {missing}, "
+                  f"which have no conv_results file and were skipped")
+    elif recomputed_path:
+        print(f"    note: {os.path.basename(recomputed_path)} matched no n_per_dim; "
+              f"used the errors logged during training")
     return True
 
 
@@ -154,6 +285,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--out-dir", default=None,
         help="Where to write the aggregates. Defaults to <root>.",
+    )
+    p.add_argument(
+        "--no-recomputed", action="store_true",
+        help=(
+            "Ignore recomputed_errors_nerror*.txt and use the errors logged during "
+            "training, as written by main_01a/main_01b. By default the recomputed "
+            "values are preferred, since the grid used during training does not "
+            "resolve the approximation error at the finer center distributions."
+        ),
     )
     p.add_argument(
         "--omit-kernel-in-name", action="store_true",
@@ -204,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             out_name = f"results_{problem}_solution_{kernel}_errors_k_{k}.txt"
         out_path = os.path.join(out_dir, out_name)
-        if aggregate(path, out_path):
+        if aggregate(path, out_path, k=k, use_recomputed=not args.no_recomputed):
             print(f"  {path}  ->  {out_path}")
             n_ok += 1
         else:

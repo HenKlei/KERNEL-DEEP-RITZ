@@ -1,0 +1,5 @@
+# relative errors of /tmp/claude-1000/-home-hendrik-kleikamp-Projects-kernel-deep-ritz-code-deep-ritz-and-kernel-methods/544c89ad-c169-449d-b96c-b0ad78adca56/scratchpad/local/sing_n12/system_k_2_n_12/model.pt on increasingly fine evaluation grids
+n_requested	n_used	rel_L2	rel_H1	L2_dev_from_finest	H1_dev_from_finest
+10201	9879	5.893524170430e-03	1.141163655013e-01	2.253155e-03	1.405431e-01
+640000	638292	5.874583016158e-03	1.334193856598e-01	9.679791e-04	4.835820e-03
+1440000	1437114	5.880274999590e-03	1.327772985001e-01	0.000000e+00	0.000000e+00

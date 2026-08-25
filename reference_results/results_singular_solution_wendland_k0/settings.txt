@@ -1,4 +1,4 @@
-date: 2026-05-23 22:25:02
+date: 2026-08-17 11:49:45
 model_type: flat
 kernel: wendland
 k_smoothness: 0
@@ -6,17 +6,19 @@ ep: 1.0
 penalty_parameter: 100.0
 n_i: 10000
 n_b: 1000
-n_error: 10201
+n_error: 640000
 optimizer_type: adam
 n_epochs: 10000
 lr: 0.05
 gamma: 0.5
-num_logs: 400
+num_logs: 50
 early_stopping_patience: 0
 angle: 4.71238898038469
 radius: 1.5
 fixed_integration_points: False
+seed: 0
+save_models: True
 list_n_per_dim: (1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
 results_dir: results_singular_solution_wendland_k0/
 device: cuda
-problem: <kernelDR.problem_definitions.laplace_pacman.LaplaceOnPacmanDomainSingularSolution object at 0x7a2e617e9670>
+problem: <kernelDR.problem_definitions.laplace_pacman.LaplaceOnPacmanDomainSingularSolution object at 0x71a31714f920>
